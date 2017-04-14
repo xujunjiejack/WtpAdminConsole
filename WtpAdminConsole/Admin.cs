@@ -8,7 +8,9 @@ using System.Data.Odbc;
 using System.Data.SQLite;
 using System.Diagnostics;
 using System.Collections;
-
+using log4net;
+using log4net.Config;
+[assembly: log4net.Config.XmlConfigurator(Watch = true)]
 namespace WtpAdminConsole
 {
 
@@ -28,6 +30,23 @@ namespace WtpAdminConsole
         private const String MYSQL_DB_PWD = "Mh&g@1U";
         private const String SQLITE_DB_LOCATION = "O:/wtp_collab.db";
 
+        public class WtpdataTrackerOperationError : Exception
+        {
+            public WtpdataTrackerOperationError()
+            {
+            }
+
+            public WtpdataTrackerOperationError(string message)
+                : base(message)
+            {
+            }
+
+            public WtpdataTrackerOperationError(string message, Exception inner)
+                : base(message, inner)
+            {
+            }
+        }
+
         private SQLiteConnection _sqliteConn;
         private OdbcConnection _odbcConn;
         private OdbcTransaction _transaction;
@@ -36,13 +55,15 @@ namespace WtpAdminConsole
         public SQLiteDataAdapter _dataAdapter;
         public DataSet _workingSet;
         private UserTableTracker _userTableTracker;
-
+        private static readonly ILog log = LogManager.GetLogger(typeof(UserTableTracker));
 
         public Admin()
         {
             queryMaker = new DataTableQueryMaker();
             _sqliteConn = new SQLiteConnection(String.Format("Data source = {0}", SQLITE_DB_LOCATION));
             _userTableTracker = new UserTableTracker(_sqliteConn);
+            _dataAdapter = new SQLiteDataAdapter();
+            _workingSet = new DataSet();
         }
         
 
@@ -54,24 +75,24 @@ namespace WtpAdminConsole
          */
         public void dumpTablesFromSQLite()
         {
+            
+            log.Info("Start migrating data from sqlite to mysql");
+
             String[] userTableMissing = userTablesMissingInMainDB();
-
-            // Load those tables into the dataAdapter
-            _dataAdapter = new SQLiteDataAdapter();
-            _workingSet = new DataSet();
-
-            foreach (var item in userTableMissing)
-                Console.WriteLine(item);
+            log.Debug($"Find missing tables: {userTableMissing.ToString()}");
 
             // Process each table
             String[] successDumpDataTable = userTableMissing.Where(dumpOneTable).ToArray();
+            log.Debug($"Dump those table successfully: {successDumpDataTable.ToString()}");
             String[] failDumpDataTable = userTableMissing.Except(successDumpDataTable).ToArray();
+            log.Debug($"Dump those table unsuccessfully: {failDumpDataTable.ToString()}");
 
             // Ask Tracker to update the tracker
             _userTableTracker.updateIsInWTPDataForTablerows(true, successDumpDataTable);
 
             // Also update the tracker in the wtp_data // Just drop the whole table and dump the tracker to it
             updateTrackerInWTPDATA();
+            
         }
 
    
@@ -147,11 +168,13 @@ namespace WtpAdminConsole
             odbcCmd.ExecuteNonQuery();
         }
 
-        public const string TRACKER_TABLE_NAME = "USER_TABLE_TRACKER";
+        public const string TRACKER_TABLE_NAME = "user_table_tracker";
 
         // Try to read the user tables that are not in the main database, that is : isInWTPData is 0.
         public String[] userTablesMissingInMainDB()
         {
+            log.Debug("Finding new user tables that not in the wtp_data");
+
             DataTable trackerTable = _userTableTracker.TrackerTable;
 
             IEnumerable<DataRow> missingTableRow = trackerTable.Rows.Cast<DataRow>()
@@ -160,21 +183,32 @@ namespace WtpAdminConsole
             return missingTableRow.Select(row => row["TableName"].ToString()).ToArray<String>();
         }
 
+
+
         public bool updateTrackerInWTPDATA()
         {
             // Actually I need to check whether tracker is in the wtp_data
+            log.Info("Updating the tracker in WTP_DATA");
 
             // Drop tracker table
-            var command = new OdbcCommand($"DROP TABLE {TRACKER_TABLE_NAME}", _odbcConn);
-            try
+            using (_odbcConn = new OdbcConnection(String.Format("DSN={0};UID={1};PWD={2}", MYSQL_DB_DSN, MYSQL_DB_UID, MYSQL_DB_PWD)))
             {
-                command.ExecuteNonQuery();
-            } catch (Exception e)
-            {
-                Debug.WriteLine(command);
+                var command = new OdbcCommand($"DROP TABLE IF EXISTS {TRACKER_TABLE_NAME};", _odbcConn);
+                _odbcConn.Open();
+                try
+                {
+                    command.ExecuteNonQuery();
+                } catch (Exception e)
+                {
+                    log.Fatal(e.ToString());
+                    throw new WtpdataTrackerOperationError();
+                }
             }
+
             // Just have a copy of tracker table in database 
             return dumpOneTable(TRACKER_TABLE_NAME);
         }
+
+
     }
 }

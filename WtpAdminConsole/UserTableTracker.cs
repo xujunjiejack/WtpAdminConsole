@@ -6,46 +6,56 @@ using System.Threading.Tasks;
 using System.Data;
 using System.Data.SQLite;
 using System.Diagnostics;
-using log4net.Appender;
+using log4net;
 
 namespace WtpAdminConsole
 {
     class UserTableTracker
     {
-        private FileAppender fileAppender = new FileAppender();
+        public class SqliteTrackerOperationError : Exception
+        {
+            public SqliteTrackerOperationError()
+            {
+            }
+
+            public SqliteTrackerOperationError(string message)
+                : base(message)
+            {
+            }
+
+            public SqliteTrackerOperationError(string message, Exception inner)
+                : base(message, inner)
+            {
+            }
+        }
+
         public const string TRACKER_TABLE_NAME = "USER_TABLE_TRACKER";
         private SQLiteConnection _sqliteConn;
         //private ConnectionCoordinater _cc;
-        private SQLiteDataAdapter _dataadapter;
+        private SQLiteDataAdapter _dataadapter; 
         private DataSet _ds;
         private List<String> _userTableNames;
 
         public DataTable TrackerTable { get => _ds.Tables[TRACKER_TABLE_NAME]; }
+        private static readonly ILog logger = LogManager.GetLogger(typeof(UserTableTracker));
 
         public List<String> UserTableNames
         {
-            get
+            get 
             {
                 _userTableNames = _userTableNames ?? getUserTableNames();
                 return _userTableNames;
             }
         }
 
-        public bool tablenameIsDuplicate(String candidate) => UserTableNames.Contains(candidate);
-      
-
-        private List<String> getUserTableNames()
-        {
-            // get the memory representation of the tracker
-            SQLiteDataAdapter dataadapter = new SQLiteDataAdapter(String.Format("SELECT * FROM {0}", TRACKER_TABLE_NAME), _sqliteConn);
-            DataSet ds = new DataSet();
-            dataadapter.Fill(ds, TRACKER_TABLE_NAME);
-            DataTable trackerTable = new DataTable();
-            trackerTable = ds.Tables[TRACKER_TABLE_NAME];
-            List<String> userTableNames = trackerTable.Rows.Cast<DataRow>()
+        /// <summary>
+        /// Get all of the user table name in tracker
+        /// </summary>
+        /// <returns> a list of user table name in tracker table </returns>
+        private List<String> getUserTableNames() => TrackerTable.Rows.Cast<DataRow>()
                                             .Select(row => (String)row["TableName"]).ToList<String>(); 
-            return userTableNames;
-        }
+
+        public bool tablenameIsDuplicate(String candidate) => UserTableNames.Contains(candidate);
 
         public String[] getAllDataTables()
         {
@@ -70,20 +80,35 @@ namespace WtpAdminConsole
         public UserTableTracker(SQLiteConnection sqliteConn)
         {
             _sqliteConn = sqliteConn;
-            _dataadapter = new SQLiteDataAdapter(String.Format("SELECT * FROM {0}", TRACKER_TABLE_NAME), _sqliteConn);
-            _ds = new DataSet();
-            _dataadapter.Fill(_ds, TRACKER_TABLE_NAME);
+            try
+            {
+                _dataadapter = new SQLiteDataAdapter(String.Format("SELECT * FROM {0}", TRACKER_TABLE_NAME), _sqliteConn);
+                _ds = new DataSet();
+                _dataadapter.Fill(_ds, TRACKER_TABLE_NAME);
+            } catch (Exception e)
+            {
+                logger.Fatal($"Loading user tracker table failed, reason: {e.ToString()}");
+                throw new SqliteTrackerOperationError(e.ToString());
+            }
         }
 
         public void updateIsInWTPDataForTablerows(Boolean status, String[] tableNames)
         {
-            var rowsNeedUpdated = TrackerTable.Rows.Cast<DataRow>().TakeWhile(row => tableNames.Contains(row["TableName"]));
+            logger.Debug("Updating user_table_tracker in wtp_collab");
+            var rowsNeedUpdated = TrackerTable.Rows.Cast<DataRow>().Where(row => tableNames.Contains(row["TableName"]));
             rowsNeedUpdated.ToList().ForEach(row => row["isInWTPData"] = (status ? 1 : 0) );
 
             SQLiteCommandBuilder cmdBuilder = new SQLiteCommandBuilder(_dataadapter);
             cmdBuilder.GetUpdateCommand();
             // use data adapter to update the sqlite
-            _dataadapter.Update(_ds, TRACKER_TABLE_NAME);
+            try
+            {
+                _dataadapter.Update(_ds, TRACKER_TABLE_NAME);
+            }catch (Exception e)
+            {
+                logger.Fatal($"Update user_table_tracker fail, reason: {e.ToString()}");
+                throw new SqliteTrackerOperationError(e.ToString());
+            }
         }
 
         /// <summary>
