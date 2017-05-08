@@ -18,6 +18,10 @@ namespace WtpAdminConsole
 {
     class Program
     { 
+        // TODO: Use mysql wtp_collab to store user table so that our main
+        // database can be as clean as possible
+
+        // Add a preview system to collab client
         private static readonly ILog logger = LogManager.GetLogger(typeof(Program));
         static void Main(string[] args)
         {
