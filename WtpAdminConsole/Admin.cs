@@ -26,9 +26,7 @@ namespace WtpAdminConsole
     class Admin
     {
         private const String MYSQL_DB_DSN = "wtp_data";
-        private const String MYSQL_DB_UID = "wtpadmin";
-        private const String MYSQL_DB_PWD = "Mh&g@1U";
-        private const String SQLITE_DB_LOCATION = "O:/wtp_collab.db";
+        private const String SQLITE_DB_LOCATION = "//wcs-cifs/wc/wtp_collab/wtp_collab.db";
 
         public class WtpdataTrackerOperationError : Exception
         {
@@ -100,7 +98,7 @@ namespace WtpAdminConsole
         {
             try
             {
-                _odbcConn = new OdbcConnection(String.Format("DSN={0};UID={1};PWD={2}", MYSQL_DB_DSN, MYSQL_DB_UID, MYSQL_DB_PWD));
+                _odbcConn = new OdbcConnection(String.Format("DSN={0};", MYSQL_DB_DSN ));
                 _dataAdapter = new SQLiteDataAdapter();
                 _workingSet = new DataSet();
                 DataTable dt = GetDataTableFromSQLite();
@@ -191,7 +189,7 @@ namespace WtpAdminConsole
             log.Info("Updating the tracker in WTP_DATA");
 
             // Drop tracker table
-            using (_odbcConn = new OdbcConnection(String.Format("DSN={0};UID={1};PWD={2}", MYSQL_DB_DSN, MYSQL_DB_UID, MYSQL_DB_PWD)))
+            using (_odbcConn = new OdbcConnection(String.Format("DSN={0};", MYSQL_DB_DSN)))
             {
                 var command = new OdbcCommand($"DROP TABLE IF EXISTS {TRACKER_TABLE_NAME};", _odbcConn);
                 _odbcConn.Open();
